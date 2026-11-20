@@ -1,0 +1,39 @@
+name: Verify transferred macOS downloads
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 12
+    steps:
+      - name: Verify both disk images and launch both signed apps
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          test "$(uname -m)" = arm64
+          for version in 0.1.9100-beta 0.1.9101-beta; do
+            dir="$RUNNER_TEMP/$version"
+            mkdir -p "$dir/mount" "$dir/install"
+            curl -fsSL --retry 3 "https://github.com/wasimysaid/desktop-updater-transfer-lab/releases/download/v$version/Unsloth-Desktop-MacOS.dmg" -o "$dir/input.dmg"
+            xcrun stapler validate "$dir/input.dmg"
+            hdiutil attach -nobrowse -readonly -mountpoint "$dir/mount" "$dir/input.dmg"
+            ditto "$dir/mount/Unsloth.app" "$dir/install/Unsloth.app"
+            hdiutil detach "$dir/mount"
+            app="$dir/install/Unsloth.app"
+            codesign --verify --deep --strict --verbose=2 "$app"
+            spctl --assess --type execute --verbose=2 "$app"
+            plist="$app/Contents/Info.plist"
+            installed=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")
+            test "$installed" = "$version"
+            binary=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$plist")
+            "$app/Contents/MacOS/$binary" >"$dir/start.log" 2>&1 &
+            pid=$!
+            sleep 12
+            if ! kill -0 "$pid"; then cat "$dir/start.log"; exit 1; fi
+            ps -p "$pid" -o pid,command
+            kill "$pid"
+            wait "$pid" || true
+            echo "Launched signed, notarized build $installed on $(sw_vers -productVersion)"
+          done
