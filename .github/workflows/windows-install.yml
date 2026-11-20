@@ -1,0 +1,57 @@
+name: Verify transferred Windows installer handoff
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  install:
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            target: windows-x86_64
+          - runner: windows-11-arm
+            target: windows-aarch64
+    runs-on: ${{ matrix.runner }}
+    env:
+      TARGET: ${{ matrix.target }}
+    steps:
+      - name: Install A, fetch B through the original channel, and exercise the NSIS update and relaunch
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $old='https://github.com/wasimysaid/desktop-updater-transfer-lab/releases'
+          $dest=Join-Path $env:LOCALAPPDATA 'Unsloth'
+          function FetchBundle($version,$manifestPath) {
+            $manifest=Invoke-RestMethod "$old/$manifestPath"
+            if ($manifest.version -ne $version) { throw "Wrong manifest $($manifest.version)" }
+            $url=$manifest.platforms.($env:TARGET).url
+            if (-not $url.StartsWith("$old/download/v$version/")) { throw "Wrong owner or tag in $url" }
+            $file=Join-Path $env:RUNNER_TEMP "$version.exe"
+            curl.exe --retry 3 -fsSL $url -o $file
+            if ($LASTEXITCODE -or (Get-AuthenticodeSignature $file).Status -ne 'Valid') { throw "Invalid bundle $version" }
+            return $file
+          }
+          function ConfirmRunning($version) {
+            for ($i=0; $i -lt 60; $i++) {
+              $wv=Get-CimInstance Win32_Process -Filter "Name='msedgewebview2.exe'" | Where-Object {
+                $_.CommandLine -like "*--webview-exe-name=unsloth-studio.exe*" -and $_.CommandLine -like "*--webview-exe-version=$version*"
+              }
+              if ($wv -and (Get-Process unsloth-studio -ErrorAction SilentlyContinue)) {
+                Write-Output "Installed client running at $version"; return
+              }
+              Start-Sleep 2
+            }
+            throw "No running Desktop webview for $version"
+          }
+          $a=FetchBundle '0.1.9100-beta' 'download/v0.1.9100-beta/latest.json'
+          $p=Start-Process $a "/S /D=$dest" -PassThru
+          if (-not $p.WaitForExit(120000) -or $p.ExitCode) { throw 'A install failed' }
+          Start-Process (Join-Path $dest 'unsloth-studio.exe')
+          ConfirmRunning '0.1.9100-beta'
+          $b=FetchBundle '0.1.9101-beta' 'latest/download/latest.json'
+          Get-Process unsloth-studio | Stop-Process
+          $p=Start-Process $b '/P /UPDATE /R' -PassThru
+          if (-not $p.WaitForExit(120000) -or $p.ExitCode) { throw 'B installer failed' }
+          ConfirmRunning '0.1.9101-beta'
