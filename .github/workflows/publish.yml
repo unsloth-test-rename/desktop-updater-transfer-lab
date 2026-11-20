@@ -6,27 +6,27 @@ permissions:
 concurrency: release-desktop-${{ github.repository }}
 jobs:
   publish:
-    if: github.repository == 'wasimysaid/desktop-updater-transfer-lab'
+    if: github.repository == 'unsloth-test-rename/desktop-updater-transfer-lab'
     runs-on: ubuntu-latest
     env:
       GH_REPO: ${{ github.repository }}
-      APP_VERSION: 0.1.9100-beta
+      APP_VERSION: 0.1.9101-beta
       PYPI_VERSION: 2026.11.7
-      DESKTOP_RELEASE_TAG: v0.1.9100-beta
-      STUDIO_VERSION: v0.1.9100-beta
-      DESKTOP_RELEASE_NOTES: Owner-transfer rehearsal build A, fork source 8113b19ab1ef700dcae0f304e14e86cf9264bf48. Install only in a disposable profile.
+      DESKTOP_RELEASE_TAG: v0.1.9101-beta
+      STUDIO_VERSION: v0.1.9101-beta
+      DESKTOP_RELEASE_NOTES: Owner-transfer rehearsal build B, fork source d672db3f66f4fcc84feb2966cb33f0450bd753e3. Install only in a disposable profile.
     steps:
       - name: Verify the immutable source build
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh api repos/wasimysaid/unsloth/actions/runs/44730286411 | jq -e '.conclusion == "success" and .head_sha == "8113b19ab1ef700dcae0f304e14e86cf9264bf48" and .event == "workflow_dispatch" and .path == ".github/workflows/release-desktop.yml"'
+          gh api repos/wasimysaid/unsloth/actions/runs/44732733516 | jq -e '.conclusion == "success" and .head_sha == "d672db3f66f4fcc84feb2966cb33f0450bd753e3" and .event == "workflow_dispatch" and .path == ".github/workflows/release-desktop.yml"'
       - name: Download signed release assets
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
         with:
           github-token: ${{ github.token }}
           repository: wasimysaid/unsloth
-          run-id: '44730286411'
+          run-id: '44732733516'
           pattern: desktop-release-*
           path: ${{ runner.temp }}/desktop-release-assets
           merge-multiple: true
@@ -139,6 +139,11 @@ jobs:
           asset_dir = pathlib.Path(os.environ['RUNNER_TEMP'], 'desktop-release-assets')
           files = [path for path in asset_dir.iterdir() if path.is_file()]
 
+          # Shipped Desktop builds only trust updater assets on unslothai/unsloth, so the renamed repo keeps pinning them there.
+          updater_repository = {'unsloth-test-rename/desktop-updater-transfer-lab': 'wasimysaid/desktop-updater-transfer-lab'}.get(
+              os.environ['GITHUB_REPOSITORY'], os.environ['GITHUB_REPOSITORY']
+          )
+
           def exactly_one(suffix: str) -> pathlib.Path:
               matches = [path for path in files if path.name.endswith(suffix)]
               if len(matches) != 1:
@@ -163,7 +168,7 @@ jobs:
               return {
                   'signature': signature_value,
                   'url': (
-                      f'https://github.com/{os.environ["GITHUB_REPOSITORY"]}/releases/download/'
+                      f'https://github.com/{updater_repository}/releases/download/'
                       f'{encoded_tag}/{encoded_name}'
                   ),
               }
@@ -292,7 +297,10 @@ jobs:
               'windows-x86_64': False,
               'windows-aarch64': False,
           }
-          expected_prefix = f'https://github.com/{os.environ["GITHUB_REPOSITORY"]}/releases/download/{release_tag}/'
+          updater_repository = {'unsloth-test-rename/desktop-updater-transfer-lab': 'wasimysaid/desktop-updater-transfer-lab'}.get(
+              os.environ['GITHUB_REPOSITORY'], os.environ['GITHUB_REPOSITORY']
+          )
+          expected_prefix = f'https://github.com/{updater_repository}/releases/download/{release_tag}/'
           forbidden_fragments = ('/releases/latest/', '/releases/download/desktop-latest/')
 
           for platform, entry in platforms.items():
